@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>图片处理工具</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <h1>图片处理工具</h1>
+        
+        <form id="imageForm">
+            <div class="form-group">
+                <label for="image">选择图片：</label>
+                <input type="file" id="image" name="image" accept="image/*" required>
+            </div>
+
+            <div class="preview-container">
+                <div class="preview-info">
+                    <div id="imageInfo" class="image-info hidden">
+                        <h4>原始图片信息</h4>
+                        <p>尺寸：<span id="originalSize"></span></p>
+                        <p>文件大小：<span id="fileSize"></span></p>
+                    </div>
+                    <div id="cropPreview" class="crop-preview hidden">
+                        <h4>裁剪预览</h4>
+                        <canvas id="cropCanvas"></canvas>
+                        <div class="crop-info">
+                            <p>裁剪后尺寸：<span id="cropSize"></span></p>
+                            <p>裁剪区域：<span id="cropArea"></span></p>
+                        </div>
+                    </div>
+                </div>
+                <div class="preview-main">
+                    <img id="preview" alt="预览">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <h3>裁剪设置</h3>
+                <label for="crop_left">左边距：</label>
+                <input type="number" id="crop_left" name="crop_left" min="0">
+                
+                <label for="crop_top">上边距：</label>
+                <input type="number" id="crop_top" name="crop_top" min="0">
+                
+                <label for="crop_right">右边距：</label>
+                <input type="number" id="crop_right" name="crop_right" min="0">
+                
+                <label for="crop_bottom">下边距：</label>
+                <input type="number" id="crop_bottom" name="crop_bottom" min="0">
+            </div>
+
+            <div class="form-group">
+                <h3>尺寸调整</h3>
+                <div class="size-control">
+                    <div class="size-inputs">
+                        <div class="input-group">
+                            <label for="width">宽度：</label>
+                            <input type="number" id="width" name="width" min="1">
+                        </div>
+                        
+                        <div class="input-group">
+                            <label for="height">高度：</label>
+                            <input type="number" id="height" name="height" min="1">
+                        </div>
+                    </div>
+                    <div class="aspect-ratio-control">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="lockAspectRatio" checked>
+                            锁定宽高比
+                        </label>
+                    </div>
+                    <div id="resizePreview" class="resize-preview hidden">
+                        <h4>调整后预览</h4>
+                        <canvas id="resizeCanvas"></canvas>
+                        <div class="resize-info">
+                            <p>调整后尺寸：<span id="resizeSize"></span></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <h3>压缩设置</h3>
+                <div class="compression-info">
+                    <p>压缩方式：</p>
+                    <div class="compression-type">
+                        <label class="radio-label">
+                            <input type="radio" name="compressionType" value="quality" checked> 按质量压缩
+                        </label>
+                        <label class="radio-label">
+                            <input type="radio" name="compressionType" value="size"> 按目标大小压缩
+                        </label>
+                    </div>
+                </div>
+                
+                <!-- 质量压缩设置 -->
+                <div id="qualitySettings" class="compression-settings">
+                    <div class="quality-control">
+                        <label for="quality">质量 (1-100)：<span id="qualityValue">85</span></label>
+                        <input type="range" id="quality" name="quality" min="1" max="100" value="85">
+                        <div class="quality-presets">
+                            <button type="button" class="preset-btn" data-quality="100">最高质量</button>
+                            <button type="button" class="preset-btn" data-quality="85">推荐</button>
+                            <button type="button" class="preset-btn" data-quality="70">平衡</button>
+                            <button type="button" class="preset-btn" data-quality="50">最小</button>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 目标大小压缩设置 -->
+                <div id="sizeSettings" class="compression-settings hidden">
+                    <div class="target-size-control">
+                        <label for="targetSize">目标大小：</label>
+                        <div class="size-input-group">
+                            <input type="number" id="targetSize" name="targetSize" min="1" value="500">
+                            <select id="sizeUnit" name="sizeUnit" aria-label="文件大小单位" title="选择文件大小单位">
+                                <option value="KB">KB</option>
+                                <option value="MB">MB</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <button type="submit">处理图片</button>
+        </form>
+        <div id="error" class="error"></div>
+    </div>
+
+    <script>
+        const imageForm = document.getElementById('imageForm');
+        const preview = document.getElementById('preview');
+        const qualityInput = document.getElementById('quality');
+        const qualityValue = document.getElementById('qualityValue');
+        const errorDiv = document.getElementById('error');
+
+        // 更新图片信息显示
+        function updateImageInfo(file, img) {
+            const imageInfo = document.getElementById('imageInfo');
+            const originalSize = document.getElementById('originalSize');
+            const fileSize = document.getElementById('fileSize');
+            
+            originalSize.textContent = `${img.naturalWidth} × ${img.naturalHeight}`;
+            fileSize.textContent = formatFileSize(file.size);
+            imageInfo.classList.remove('hidden');
+            
+            // 自动填充裁剪区域的默认值
+            document.getElementById('crop_left').value = 0;
+            document.getElementById('crop_top').value = 0;
+            document.getElementById('crop_right').value = img.naturalWidth;
+            document.getElementById('crop_bottom').value = img.naturalHeight;
+            
+            // 自动填充调整尺寸的默认值为裁剪区域的尺寸
+            document.getElementById('width').value = img.naturalWidth;
+            document.getElementById('height').value = img.naturalHeight;
+        }
+
+        // 格式化文件大小
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        // 预览裁剪结果
+        function previewCrop() {
+            const img = document.getElementById('preview');
+            const canvas = document.getElementById('cropCanvas');
+            const ctx = canvas.getContext('2d');
+            
+            const left = parseInt(document.getElementById('crop_left').value) || 0;
+            const top = parseInt(document.getElementById('crop_top').value) || 0;
+            const right = parseInt(document.getElementById('crop_right').value) || img.naturalWidth;
+            const bottom = parseInt(document.getElementById('crop_bottom').value) || img.naturalHeight;
+            
+            const width = right - left;
+            const height = bottom - top;
+            
+            // 更新裁剪信息
+            document.getElementById('cropSize').textContent = `${width} × ${height}`;
+            document.getElementById('cropArea').textContent = `(${left}, ${top}) - (${right}, ${bottom})`;
+            
+            // 更新尺寸输入框的值为裁剪后的尺寸
+            document.getElementById('width').value = width;
+            document.getElementById('height').value = height;
+            
+            // 设置画布尺寸并保持宽高比
+            const maxPreviewWidth = 200;
+            const scale = Math.min(1, maxPreviewWidth / width);
+            canvas.width = width * scale;
+            canvas.height = height * scale;
+            
+            ctx.drawImage(img, left, top, width, height, 0, 0, canvas.width, canvas.height);
+            document.getElementById('cropPreview').classList.remove('hidden');
+            
+            // 添加尺寸预览
+            previewResize(left, top, right, bottom);
+        }
+
+        // 修改尺寸输入联动
+        function updateSize(source) {
+            const lockAspectRatio = document.getElementById('lockAspectRatio').checked;
+            const widthInput = document.getElementById('width');
+            const heightInput = document.getElementById('height');
+            
+            // 获取裁剪区域的当前尺寸
+            const left = parseInt(document.getElementById('crop_left').value) || 0;
+            const top = parseInt(document.getElementById('crop_top').value) || 0;
+            const right = parseInt(document.getElementById('crop_right').value) || preview.naturalWidth;
+            const bottom = parseInt(document.getElementById('crop_bottom').value) || preview.naturalHeight;
+            const cropWidth = right - left;
+            const cropHeight = bottom - top;
+            
+            if (lockAspectRatio) {
+                const aspectRatio = cropWidth / cropHeight;
+                
+                if (source === 'width') {
+                    const width = parseInt(widthInput.value) || 0;
+                    heightInput.value = Math.round(width / aspectRatio);
+                } else {
+                    const height = parseInt(heightInput.value) || 0;
+                    widthInput.value = Math.round(height * aspectRatio);
+                }
+            }
+            
+            // 预览尺寸调整结果
+            previewResize(left, top, right, bottom);
+        }
+
+        // 添加尺寸预览函数
+        function previewResize(left, top, right, bottom) {
+            const img = document.getElementById('preview');
+            const canvas = document.getElementById('resizeCanvas');
+            const ctx = canvas.getContext('2d');
+            
+            const cropWidth = right - left;
+            const cropHeight = bottom - top;
+            const newWidth = parseInt(document.getElementById('width').value) || cropWidth;
+            const newHeight = parseInt(document.getElementById('height').value) || cropHeight;
+            
+            // 更新尺寸信息
+            document.getElementById('resizeSize').textContent = `${newWidth} × ${newHeight}`;
+            
+            // 设置画布尺寸并保持宽高比
+            const maxPreviewWidth = 200;
+            const scale = Math.min(1, maxPreviewWidth / newWidth);
+            canvas.width = newWidth * scale;
+            canvas.height = newHeight * scale;
+            
+            // 清除画布
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // 绘制调整大小后的图片
+            ctx.drawImage(img, left, top, cropWidth, cropHeight, 0, 0, canvas.width, canvas.height);
+            document.getElementById('resizePreview').classList.remove('hidden');
+        }
+
+        // 修改尺寸输入事件监听
+        document.getElementById('width').addEventListener('input', function() {
+            updateSize('width');
+        });
+
+        document.getElementById('height').addEventListener('input', function() {
+            updateSize('height');
+        });
+
+        // 修改图片上传处理
+        document.getElementById('image').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    const img = document.getElementById('preview');
+                    img.onload = function() {
+                        updateImageInfo(file, img);
+                        img.classList.remove('hidden');
+                    };
+                    img.src = e.target.result;
+                }
+                reader.readAsDataURL(file);
+            }
+        });
+
+        // 添加裁剪预览按钮事件监听
+        const cropInputs = ['crop_left', 'crop_top', 'crop_right', 'crop_bottom'];
+        cropInputs.forEach(id => {
+            document.getElementById(id).addEventListener('change', previewCrop);
+        });
+
+        // 预览图片
+        document.getElementById('image').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = function(e) {
+                    preview.src = e.target.result;
+                    preview.classList.remove('hidden');
+                }
+                reader.readAsDataURL(file);
+            }
+        });
+
+        // 显示质量值
+        qualityInput.addEventListener('input', function() {
+            qualityValue.textContent = this.value;
+        });
+
+        // 压缩方式切换
+        document.querySelectorAll('input[name="compressionType"]').forEach(radio => {
+            radio.addEventListener('change', function() {
+                document.getElementById('qualitySettings').classList.toggle('hidden', this.value === 'size');
+                document.getElementById('sizeSettings').classList.toggle('hidden', this.value === 'quality');
+            });
+        });
+
+        // 修改表单提交处理
+        imageForm.addEventListener('submit', async function(e) {
+            e.preventDefault();
+            errorDiv.textContent = '';
+
+            const formData = new FormData(this);
+            
+            // 添加压缩类型和目标大小信息
+            const compressionType = document.querySelector('input[name="compressionType"]:checked').value;
+            formData.append('compressionType', compressionType);
+            
+            if (compressionType === 'size') {
+                const targetSize = document.getElementById('targetSize').value;
+                const sizeUnit = document.getElementById('sizeUnit').value;
+                formData.append('targetSize', targetSize);
+                formData.append('sizeUnit', sizeUnit);
+            }
+
+            try {
+                const response = await fetch('/process', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (response.ok) {
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'processed_image' + blob.type.replace('image/', '.');
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    a.remove();
+                } else {
+                    const error = await response.json();
+                    throw new Error(error.error);
+                }
+            } catch (error) {
+                errorDiv.textContent = '处理失败：' + error.message;
+            }
+        });
+
+        // 添加质量设按钮事件
+        document.querySelectorAll('.preset-btn').forEach(button => {
+            button.addEventListener('click', function() {
+                const quality = this.dataset.quality;
+                qualityInput.value = quality;
+                qualityValue.textContent = quality;
+            });
+        });
+    </script>
+</body>
+</html> 
